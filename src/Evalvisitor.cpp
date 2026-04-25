@@ -538,16 +538,73 @@ std::any EvalVisitor::visitArith_expr(Python3Parser::Arith_exprContext *ctx) {
     if (ctx->term().size() == 1) {
         return visit(ctx->term(0));
     }
-    // For now, just return the first one
-    return visit(ctx->term(0));
+    
+    auto result_any = visit(ctx->term(0));
+    auto result = get_value_from_any(result_any);
+    if (!result) return nullptr;
+    
+    for (size_t i = 0; i < ctx->addorsub_op().size(); i++) {
+        auto op = ctx->addorsub_op(i);
+        auto next_term_any = visit(ctx->term(i + 1));
+        auto next_term = get_value_from_any(next_term_any);
+        if (!next_term) return nullptr;
+        
+        if (op->ADD()) {
+            // Simple addition for integers
+            if (result->type == ValueType::INT && next_term->type == ValueType::INT) {
+                std::string sum = IntValue::add(
+                    static_cast<IntValue*>(result)->value,
+                    static_cast<IntValue*>(next_term)->value
+                );
+                result = make_int(sum).release();
+            } else {
+                // For other types, just use string concatenation
+                std::string combined = result->toString() + next_term->toString();
+                result = make_str(combined).release();
+            }
+        } else if (op->MINUS()) {
+            // Simple subtraction for integers
+            if (result->type == ValueType::INT && next_term->type == ValueType::INT) {
+                std::string diff = IntValue::subtract(
+                    static_cast<IntValue*>(result)->value,
+                    static_cast<IntValue*>(next_term)->value
+                );
+                result = make_int(diff).release();
+            }
+        }
+    }
+    
+    return std::any(result);
 }
 
 std::any EvalVisitor::visitTerm(Python3Parser::TermContext *ctx) {
     if (ctx->factor().size() == 1) {
         return visit(ctx->factor(0));
     }
-    // For now, just return the first one
-    return visit(ctx->factor(0));
+    
+    auto result_any = visit(ctx->factor(0));
+    auto result = get_value_from_any(result_any);
+    if (!result) return nullptr;
+    
+    for (size_t i = 0; i < ctx->muldivmod_op().size(); i++) {
+        auto op = ctx->muldivmod_op(i);
+        auto next_factor_any = visit(ctx->factor(i + 1));
+        auto next_factor = get_value_from_any(next_factor_any);
+        if (!next_factor) return nullptr;
+        
+        if (op->STAR()) {
+            // Simple multiplication for integers
+            if (result->type == ValueType::INT && next_factor->type == ValueType::INT) {
+                std::string product = IntValue::multiply(
+                    static_cast<IntValue*>(result)->value,
+                    static_cast<IntValue*>(next_factor)->value
+                );
+                result = make_int(product).release();
+            }
+        }
+    }
+    
+    return std::any(result);
 }
 
 std::any EvalVisitor::visitFactor(Python3Parser::FactorContext *ctx) {
@@ -565,7 +622,23 @@ std::any EvalVisitor::visitAtom_expr(Python3Parser::Atom_exprContext *ctx) {
     if (ctx->trailer() && atom && atom->type == ValueType::STR) {
         std::string name = static_cast<StrValue*>(atom)->value;
         if (name == "print" && ctx->trailer()->OPEN_PAREN()) {
-            // Simple print implementation - just print a newline for now
+            // Check if there are arguments
+            if (ctx->trailer()->arglist()) {
+                auto arglist = ctx->trailer()->arglist();
+                bool first = true;
+                for (auto arg : arglist->argument()) {
+                    auto tests = arg->test();
+                    if (!tests.empty()) {
+                        auto arg_value_any = visit(tests[0]);
+                        auto arg_value = get_value_from_any(arg_value_any);
+                        if (arg_value) {
+                            if (!first) std::cout << " ";
+                            std::cout << arg_value->toString();
+                            first = false;
+                        }
+                    }
+                }
+            }
             std::cout << std::endl;
             return std::any(make_none().release());
         }
